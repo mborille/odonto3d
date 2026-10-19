@@ -1,0 +1,24 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {parseSlice,buildVolume,scanFiles,voxelValue,buildVolumeAsync} from '../src/dicom.js';
+import {distanceMM} from '../src/slices.js';
+import {dicomFixture} from './fixtures.mjs';
+const slice=o=>parseSlice(dicomFixture(o));
+const series=(opts={})=>[slice({...opts,z:0}),slice({...opts,z:1}),slice({...opts,z:2})];
+test('Explicit LE: signed values, rescale, physical slice order and spacing',()=>{const v=buildVolume([slice({z:2}),slice({z:0,values:[-100,0,1,2,3,4,5,6,7]}),slice({z:1})]);assert.deepEqual(v.dimensions,[3,3,3]);assert.deepEqual(v.spacing,[.2,.3,1]);assert.equal(voxelValue(v,0),-1200);assert.equal(voxelValue(v,9),-1000);});
+test('Implicit LE is decoded',()=>{const v=buildVolume(series({transfer:'1.2.840.10008.1.2'}));assert.equal(voxelValue(v,1),-998);});
+test('Signed 12-bit pixels are sign-extended',()=>{const v=buildVolume(series({stored:12,values:[4095,2048,2047,0,1,2,3,4,5],slope:1,intercept:0}));assert.equal(voxelValue(v,0),-1);assert.equal(voxelValue(v,1),-2048);assert.equal(voxelValue(v,2),2047);});
+test('Unsigned 8-bit pixels are decoded',()=>{const v=buildVolume(series({bits:8,stored:8,signed:0,slope:1,intercept:0,values:[0,255,128,1,2,3,4,5,6]}));assert.equal(voxelValue(v,1),255);});
+test('Flipped axial directions are reordered to LPS with physical origin',()=>{const v=buildVolume(series({orientation:[-1,0,0,0,-1,0]}));assert.equal(voxelValue(v,0),-984);assert.deepEqual(v.origin,[-.4,-.6,0]);});
+test('Nonuniform slice spacing is rejected',()=>assert.throws(()=>buildVolume([slice({z:0}),slice({z:1}),slice({z:3})]),/Espaçamento irregular/));
+test('Overlapping planes and duplicate instances are rejected',()=>{assert.throws(()=>buildVolume([slice({z:0}),slice({z:0,sop:'1.9'})]),/sobrepostos/);assert.throws(()=>buildVolume([slice({z:0,sop:'1.8'}),slice({z:1,sop:'1.8'})]),/duplicadas/);});
+test('Mixed studies, series or frames are rejected',()=>{for(const key of ['uid','study','frame'])assert.throws(()=>buildVolume([slice({z:0}),slice({z:1,[key]:'9.8.7'})]),/inconsistentes/);});
+test('Tilted and shifted series are rejected',()=>{assert.match(slice({orientation:[.99,0,.1,0,1,0]}).error,/oblíqua/);assert.throws(()=>buildVolume([slice({z:0}),slice({z:1,position:[.5,0,1]})]),/deslocados/);});
+test('Missing geometry is rejected',()=>{assert.match(slice({omit:'00200037'}).error,/geométricos/);assert.match(slice({spacing:[0,.2]}).error,/Espaçamento/);});
+test('Compression, multiframe, non CT and truncation are rejected',()=>{assert.match(slice({transfer:'1.2.840.10008.1.2.4.90'}).error,/Compressão/);assert.match(slice({frames:5}).error,/multiframe/);assert.match(slice({modality:'MR'}).error,/modalidade CT/);const b=dicomFixture();assert.match(parseSlice(b.subarray(0,b.length-3)).error,/pixel/);});
+test('Invalid transforms cannot create infinite values',()=>{assert.match(slice({slope:Infinity}).error,/intensidade/);assert.throws(()=>buildVolume(series({slope:1e40})),/Intensidades/);});
+test('Measurements use anisotropic physical spacing',()=>assert.ok(Math.abs(distanceMM([0,0,0],[3,4,0],[2,3,1])-Math.sqrt(180))<1e-10));
+test('File scanning groups series, ignores auxiliary files and rejects malformed .dcm',async()=>{const a=new File([dicomFixture({z:0})],'image');const b=new File([dicomFixture({z:1})],'image2.dcm');const c=new File(['readme'],'readme.txt');const result=await scanFiles([a,b,c]);assert.equal(result.groups[0].slices.length,2);assert.equal(result.skipped,1);await assert.rejects(()=>scanFiles([a,new File(['broken'],'bad.dcm')]),/cabeçalho/);});
+
+test('Uniform transforms retain exact 16-bit storage without resampling',()=>{const v=buildVolume(series());assert.ok(v.data instanceof Int16Array);assert.equal(v.scalarSlope,2);assert.equal(v.scalarIntercept,-1000);assert.equal(v.data.byteLength,54);});
+test('Different rescale transforms use physical Float32 values',()=>{const v=buildVolume([slice({z:0,slope:2}),slice({z:1,slope:3})]);assert.ok(v.data instanceof Float32Array);assert.equal(voxelValue(v,10),-997);});
+test('Negative rescale and async reconstruction preserve physical intensities',async()=>{const v=await buildVolumeAsync(series({slope:-2,intercept:100}));assert.equal(voxelValue(v,8),84);assert.equal(v.min,84);assert.equal(v.max,100);});
