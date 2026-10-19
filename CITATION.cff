@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "Se você utilizar este software, cite-o conforme os dados abaixo."
+title: "Odonto3D: visualizador odontológico local para DICOM e lâminas"
+type: software
+version: 0.5.0
+date-released: 2026-10-19
+doi: 10.6084/m9.figshare.34701651
+authors:
+  - family-names: Borille
+    given-names: Marcelo Barboza
+    orcid: "https://orcid.org/0009-0000-5422-207X"
+repository-code: "https://github.com/mborille/odonto3d"
+url: "https://mborille.github.io/odonto3d/"
+license: MIT
+abstract: >-
+  Protótipo local para visualização odontológica de séries DICOM, reconstrução
+  experimental de lâminas PDF/JPG e segmentação assistida pelo modelo público
+  DentalSegmentator. Não validado para uso clínico.
+keywords:
+  - odontologia
+  - CBCT
+  - DICOM
+  - visualização 3D
+  - segmentação
